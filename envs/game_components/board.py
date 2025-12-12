@@ -1,17 +1,22 @@
 import numpy as np
-from typing import Union
+from typing import Union, Tuple
+from dictionary import Dictionary
 
 class Board: 
 
-	def __init__(self, size: int = 5): 
+	def __init__(self, dictionary: Dictionary, size: int = 5): 
 		"""
 		Initializes the game board of a given size. 
 		
 		:param self: Game board object
+		:param dictionary: Word dictionary
+		:type dictionary: Dictionary
 		:param size: Tile-length of the square board
 		:type size: int
+		
 		"""
 		self.size = size
+		self.dictionary = dictionary
 		
 		# Making the main board
 		self.grid = [[None for _ in range(size)] for _ in range(size)]
@@ -89,8 +94,18 @@ class Board:
 			return self.grid[row][col]
 		return None
 	
-	def is_empty(self, row, col):
-		"""Check if a square is empty."""
+	def is_empty(self, row, col) -> bool:
+		"""
+		Check if a square is empty.
+
+		:param self: Board object
+		:param row: Row coordinate
+		:type row: int
+		:param col: Column coordinate
+		:type col: int
+		:return: True if empty, False if occupied
+		:rtype: bool
+		"""
 		return self.grid[row][col] is None
 
 	def to_array(self):
@@ -119,3 +134,135 @@ class Board:
 			line = ' '.join(cell if cell else '.' for cell in row)
 			lines.append(line)
 		return '\n'.join(lines)
+	
+	def _can_place_word(self, word, row, col, direction, player_rack, is_first_move) -> Tuple[bool, str]:
+		"""
+		Validate if a word can be placed at the given position.
+
+		Returns:
+			(bool, str): (is_valid, reason_if_invalid)
+		"""
+
+		# Check 1: Word fits on board
+		if direction == 'H':
+			if col + len(word) > self.size:
+				return False, "Word extends past board boundary"
+		else:  # 'V'
+			if row + len(word) > self.size:
+				return False, "Word extends past board boundary"
+
+		# Check 2: First move must pass through center
+		if is_first_move:
+			center = self.size // 2
+			passes_through_center = False
+
+			for i in range(len(word)):
+				if direction == 'H':
+					if row == center and col + i == center:
+						passes_through_center = True
+				else:
+					if row + i == center and col == center:
+						passes_through_center = True
+
+			if not passes_through_center:
+				return False, "First word must pass through center"
+
+		# Check 3: Subsequent moves must connect to existing letters
+		if not is_first_move:
+			connects = False
+
+			for i in range(len(word)):
+				r = row if direction == 'H' else row + i
+				c = col + i if direction == 'H' else col
+
+				# Check if this position has an adjacent letter
+				if self._has_adjacent_letter(r, c):
+					connects = True
+
+				# Or if we're placing on top of an existing letter
+				if not self.is_empty(r, c):
+					connects = True
+
+			if not connects:
+				return False, "Word must connect to existing letters"
+
+		# Check 4: Can we form this word with our rack + board letters?
+		letters_needed = []
+		for i, letter in enumerate(word):
+			r = row if direction == 'H' else row + i
+			c = col + i if direction == 'H' else col
+
+			if self.is_empty(r, c):
+				# Need to place a new letter
+				letters_needed.append(letter)
+			else:
+				# Letter already on board - must match
+				if self.grid[r][c] != letter:
+					return False, f"Letter mismatch at position ({r}, {c})"
+
+		# Check if player has the needed letters in their rack
+		rack_copy = player_rack.copy()
+		for letter in letters_needed:
+			if letter in rack_copy:
+				rack_copy.remove(letter)
+			else:
+				# Check for blank tile
+				if '_' in rack_copy:
+					rack_copy.remove('_')
+				else:
+					return False, "Player doesn't have required letters"
+
+		# Check 5: All perpendicular words formed must be valid
+		perpendicular_words = self._get_perpendicular_words(word, row, col, direction)
+		for perp_word, _, _ in perpendicular_words:
+			if len(perp_word) > 1 and not self.dictionary.is_valid_word(perp_word):
+				return False, f"Perpendicular word '{perp_word}' is invalid"
+
+		return True, "Valid placement"
+
+	def _has_adjacent_letter(self, row, col):
+		"""Check if a position has any adjacent letters (not diagonal)."""
+		adjacents = [
+			(row - 1, col),  # above
+			(row + 1, col),  # below
+			(row, col - 1),  # left
+			(row, col + 1),  # right
+		]
+
+		for r, c in adjacents:
+			if 0 <= r < self.size and 0 <= c < self.size:
+				if not self.is_empty(r, c):
+					return True
+
+		return False
+
+	def _get_perpendicular_words(self, word, row, col, direction):
+		"""
+		Find all perpendicular words formed by placing this word.
+
+		Returns:
+			List of (word, start_row, start_col) tuples
+		"""
+		perpendicular_words = []
+
+		# For each letter in the main word
+		for i in range(len(word)):
+			r = row if direction == 'H' else row + i
+			c = col + i if direction == 'H' else col
+
+			# Skip if this position already has a letter (we're not placing new)
+			if not self.is_empty(r, c):
+				continue
+
+			# Look in perpendicular direction
+			if direction == 'H':
+				# Main word is horizontal, look vertically
+				perp_word = self._extract_vertical_word(r, c, word[i])
+			else:
+				# Main word is vertical, look horizontally
+				perp_word = self._extract_horizontal_word(r, c, word[i])
+
+			if perp_word:
+				perpendicular_words.append(perp_word)
+
+		return perpendicular_words
