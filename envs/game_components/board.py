@@ -30,7 +30,7 @@ class Board:
 
 
 	def _initialize_premium_squares(self): 
-		"""Set up premium square layour for mini-Scrabble board"""
+		"""Set up premium square layour for mini-Scrabble board (for now, just double letter and double word)"""
 
 		premiums = [[None for _ in range(self.size)] for _ in range(self.size)]
 
