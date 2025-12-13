@@ -1,26 +1,35 @@
 class Dictionary: 
 	
-	def __init__(self): 
-		
-		self.words = set() # Use a set for O(1) lookup
-		self.load_words()
-
-	def load_words(self, file_path= 'envs/game_components/words_simple.txt'): 
-		"""Load words from a file into the dictionary."""
-		try: 
-			with open(file_path, 'r') as file: 
-				for line in file: 
-					word = line.strip().lower() 
-					if word: 
-						self.words.add(word) 
-		except FileNotFoundError: 
-			print(f"Word list file not found: {file_path}")
-
-	def is_valid_word(self, word: str) -> bool: 
+	def __init__(self, word_list=None, file_path=None):
 		"""
-		Docstring for is_valid_word
+		Initialize dictionary from word list or file.
 		
-		:param self: Dictionary object
-		:param word (str): word to check
+		:param word_list: List of words (optional)
+		:param file_path: Path to word file (optional)
 		"""
-		return word.lower() in self.words
+		self.words = set()
+
+		if word_list is not None:
+			self.words = set(word.strip().upper() for word in word_list if word.strip())
+		elif file_path is not None:
+			self._load_from_file(file_path)
+		else:
+			# Default minimal word list for testing
+			self.words = {'CAT', 'DOG', 'HAT', 'BAT', 'RAT', 'MAT'}
+
+	def _load_from_file(self, file_path):
+		"""Load words from file (private method)."""
+		try:
+			with open(file_path, 'r') as f:
+				self.words = set(
+					line.strip().upper()
+					for line in f
+					if line.strip()
+				)
+		except FileNotFoundError:
+			print(f"Warning: Word file not found: {file_path}")
+			self.words = set()
+
+	def is_valid_word(self, word: str) -> bool:
+		"""Check if a word is in the dictionary."""
+		return word.upper() in self.words
