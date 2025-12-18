@@ -48,10 +48,13 @@ class Board:
 
 		return premiums
 	
-	def place_word(self, word: str, row:int, col:int, direction:str) -> bool: 
+	def place_word(self, word: str, row:int, col:int, direction:str) -> bool:
 		"""
-		Places a word on the board. 
-		
+		Places a word on the board.
+
+		Note: This method assumes validation has already been done via _can_place_word().
+		It simply places the letters without checking validity.
+
 		:param self: Board object
 		:param word: Word to place
 		:type word: str
@@ -61,15 +64,11 @@ class Board:
 		:type col: int
 		:param direction: 'H' (horizontal) or 'V' (vertical)
 		:type direction: str
-		:return: True if successful placement, False if invalid placement
+		:return: True (always succeeds)
 		:rtype: bool
 		"""
 
-		# Validate placement (detailed later)
-		if not self._can_place_word(word, row, col, direction):
-			return False
-
-		# Place letters
+		# Place letters (validation should be done beforehand)
 		for i, letter in enumerate(word):
 			if direction == 'H':
 				self.grid[row][col + i] = letter

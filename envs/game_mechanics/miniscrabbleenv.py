@@ -1,11 +1,11 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from game_components.board import Board
-from game_components.tile_bag import TileBag
-from game_components.dictionary import Dictionary
-from game_mechanics.scorer import Scorer
-from game_mechanics.player import Player
+from ..game_components.board import Board
+from ..game_components.tile_bag import TileBag
+from ..game_components.dictionary import Dictionary
+from .scorer import Scorer
+from .player import Player
 
 class MiniScrabbleEnv(gym.Env): 
 

@@ -1,5 +1,5 @@
 from typing import Union
-from game_components.tile_bag import TileBag
+from ..game_components.tile_bag import TileBag
 import numpy as np
 
 class Player: 

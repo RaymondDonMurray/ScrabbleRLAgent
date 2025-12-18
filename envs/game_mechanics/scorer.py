@@ -1,5 +1,4 @@
-from game_components.board import Board
-from game_mechanics.player import Player
+from ..game_components.board import Board
 
 DEFAULT_LETTER_SCORES = {
 	'a': 1, 'b': 3, 'c': 3, 'd': 2,
