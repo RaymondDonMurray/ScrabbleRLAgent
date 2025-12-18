@@ -75,14 +75,13 @@ class Scorer:
 		else: 
 			raise ValueError("Direction must be either 'H' or 'V'")
 		
-		for letter in word: 
-			letter = letter.lower()
+		for letter in word:
 			letter_multiplier = 1 # multiplier for the current letter
-			
-			# Making tuple of the current letter
+
+			# Making tuple of the current letter (keep uppercase for comparison)
 			letter_list = [None, None, None]
-			letter_list[2] = letter
-			letter_val = self.letter_scores[letter.lower()]
+			letter_list[2] = letter  # Keep uppercase
+			letter_val = self.letter_scores[letter.lower()]  # Use lowercase for scoring lookup
 			letter_list[idx_dynamic] = val_dynamic
 			letter_list[idx_static] = val_static
 			letter_tuple = tuple(letter_list)

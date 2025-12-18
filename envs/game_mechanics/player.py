@@ -5,10 +5,9 @@ import numpy as np
 class Player: 
 
 	def __init__(
-			self, 
-			id: int, 
-			rack_size: int = 5, 
-			rack: list[str] = None,
+			self,
+			id: int,
+			rack_size: int = 5,
 			score: int = 0
 	): 
 		"""
@@ -32,7 +31,7 @@ class Player:
 	def draw_tiles(
 			self, 
 			tile_bag: TileBag, 
-			n: Union[int, None] = None
+			n: int = None
 	) -> None: 
 		"""
 		Drawing tiles from the bag and saving the player's rack
@@ -59,7 +58,7 @@ class Player:
 			self, 
 			letters: list[str], 
 			track_blanks: bool = True
-	) -> Union[list[bool], None]: 
+	) -> list[bool] | None: 
 		"""
 		Take tiles from the rack to amke the attempted word, using blank tiles if needed. 
 		
@@ -87,7 +86,7 @@ class Player:
 					blank_usage.append(True)
 			
 			else: # Don't have the letter or any more blanks
-				raise ValueError(f"Cannot use '{letter}")
+				raise ValueError(f"Cannot use '{letter}'")
 			
 		self.rack = rack_copy # Don't want to update rack unless word can be formed
 			
@@ -95,7 +94,8 @@ class Player:
 	
 	def add_score(
 			self, 
-			points: int) -> None: 
+			points: int
+		) -> None: 
 		"""
 		Add points to the player's score
 		
@@ -120,13 +120,14 @@ class Player:
 
 		array = np.zeros(27, dtype= np.int32)
 
-		for tile in self.rack: 
-			if tile is not None: 
+		for tile in self.rack:
+			if tile is not None:
 				if tile == '_':
 					# blank tile goes in last position
-					array[26] += 1 
-				else: 
-					array[ord(tile) - ord('a')] += 1
+					array[26] += 1
+				else:
+					# Use uppercase to match board convention
+					array[ord(tile) - ord('A')] += 1
 
 		return array
  

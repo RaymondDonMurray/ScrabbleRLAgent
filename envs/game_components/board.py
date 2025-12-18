@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Union, Tuple
-from dictionary import Dictionary
+from .dictionary import Dictionary
 
 class Board: 
 
@@ -29,8 +29,8 @@ class Board:
 		self.premium_used = [[False for _ in range(size)] for _ in range(size)]
 
 
-	def _initialize_premium_squares(self): 
-		"""Set up premium square layour for mini-Scrabble board (for now, just double letter and double word)"""
+	def _initialize_premium_squares(self):
+		"""Set up premium square layout for mini-Scrabble board (for now, just double letter and double word)"""
 
 		premiums = [[None for _ in range(self.size)] for _ in range(self.size)]
 
@@ -94,7 +94,7 @@ class Board:
 			return self.grid[row][col]
 		return None
 	
-	def is_empty(self, row, col) -> bool:
+	def is_empty(self, row: int, col: int) -> bool:
 		"""
 		Check if a square is empty.
 
@@ -108,13 +108,12 @@ class Board:
 		"""
 		return self.grid[row][col] is None
 
-	def to_array(self):
+	def to_array(self) -> np.ndarray:
 		"""
 		Convert board to numerical array for neural network input.
 
-		Returns:
-			numpy array of shape (size, size) with:
-			0 = empty, 1-26 = letters A-Z
+		:return: numpy array of shape (size, size) with 0=empty, 1-26=letters A-Z
+		:rtype: np.ndarray
 		"""
 		import numpy as np
 
@@ -266,3 +265,83 @@ class Board:
 				perpendicular_words.append(perp_word)
 
 		return perpendicular_words
+
+	def _extract_vertical_word(self, row: int, col: int, new_letter: str) -> Union[Tuple[str, int, int], None]:
+		"""
+		Extract vertical word at position (row, col) including the new letter.
+
+		:param row: Row position of new letter
+		:type row: int
+		:param col: Column position of new letter
+		:type col: int
+		:param new_letter: Letter being placed at this position
+		:type new_letter: str
+		:return: (word, start_row, start_col) tuple or None if no perpendicular word formed
+		:rtype: Union[Tuple[str, int, int], None]
+		"""
+		# Look up to find the start of the word
+		start_row = row
+		while start_row > 0 and not self.is_empty(start_row - 1, col):
+			start_row -= 1
+
+		# Look down to find the end of the word
+		end_row = row
+		while end_row < self.size - 1 and not self.is_empty(end_row + 1, col):
+			end_row += 1
+
+		# If no adjacent letters, no perpendicular word is formed
+		if start_row == row and end_row == row:
+			return None
+
+		# Build the word
+		word_letters = []
+		for r in range(start_row, end_row + 1):
+			if r == row:
+				# This is where we're placing the new letter
+				word_letters.append(new_letter)
+			else:
+				# Letter already on board
+				word_letters.append(self.grid[r][col])
+
+		word = ''.join(word_letters)
+		return (word, start_row, col)
+
+	def _extract_horizontal_word(self, row: int, col: int, new_letter: str) -> Union[Tuple[str, int, int], None]:
+		"""
+		Extract horizontal word at position (row, col) including the new letter.
+
+		:param row: Row position of new letter
+		:type row: int
+		:param col: Column position of new letter
+		:type col: int
+		:param new_letter: Letter being placed at this position
+		:type new_letter: str
+		:return: (word, start_row, start_col) tuple or None if no perpendicular word formed
+		:rtype: Union[Tuple[str, int, int], None]
+		"""
+		# Look left to find the start of the word
+		start_col = col
+		while start_col > 0 and not self.is_empty(row, start_col - 1):
+			start_col -= 1
+
+		# Look right to find the end of the word
+		end_col = col
+		while end_col < self.size - 1 and not self.is_empty(row, end_col + 1):
+			end_col += 1
+
+		# If no adjacent letters, no perpendicular word is formed
+		if start_col == col and end_col == col:
+			return None
+
+		# Build the word
+		word_letters = []
+		for c in range(start_col, end_col + 1):
+			if c == col:
+				# This is where we're placing the new letter
+				word_letters.append(new_letter)
+			else:
+				# Letter already on board
+				word_letters.append(self.grid[row][c])
+
+		word = ''.join(word_letters)
+		return (word, row, start_col)
