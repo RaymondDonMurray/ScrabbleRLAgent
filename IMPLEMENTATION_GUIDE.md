@@ -382,6 +382,42 @@ Now that you have the board and validation, implement the actual game flow.
 
 **Why it matters:** This is what the RL agent interacts with. It must follow the Gym API (reset, step, render).
 
+**How the environment works in practice:**
+
+The Gymnasium environment provides a standard interface for reinforcement learning. Think of it as a game engine that agents interact with using only two methods:
+
+1. **`reset()`**: Starts a new game episode. Returns the initial game state (observation).
+2. **`step(action)`**: Executes one action, updates the game state, and returns (new_state, reward, done, info).
+
+Here's how a typical game plays out:
+
+```python
+env = MiniScrabbleEnv()
+
+# Start new game
+observation, info = env.reset()
+
+done = False
+while not done:
+    # Agent looks at observation and picks action
+    action = agent.choose_action(observation)  # Agent's decision
+
+    # Environment executes the action
+    observation, reward, terminated, truncated, info = env.step(action)
+
+    # Check if game ended
+    done = terminated or truncated
+```
+
+**Key concept: Two-player alternating turns**
+After each `step()`, the environment automatically switches to the other player. The observation returned shows the board state and rack for the player whose turn it is next. This means:
+- Call `reset()` → Player 0's turn, get Player 0's observation
+- Call `step(action)` → Player 0 makes move, environment switches to Player 1, returns Player 1's observation
+- Call `step(action)` → Player 1 makes move, environment switches to Player 0, returns Player 0's observation
+- And so on...
+
+The RL agent will play as both players (self-play), so it needs to handle observations from either player's perspective.
+
 **Class: `MiniScrabbleEnv(gym.Env)`**
 
 **Attributes to store:**
@@ -398,98 +434,115 @@ Now that you have the board and validation, implement the actual game flow.
 
 **Observation Space Structure:**
 - Dictionary with keys:
-  - 'board': Box of integers, shape (5, 5)
-  - 'rack': Box of integers, shape (27,)
-  - 'action_mask': Box of booleans, shape (action_space_size,)
-  - 'score_self': Current player's score
-  - 'score_opp': Opponent's score
+  - 'board': Box of integers, shape (5, 5), range [0, 26] where 0=empty, 1-26=A-Z
+  - 'rack': Box of integers, shape (27,), range [0, rack_size] counting each letter (26 letters + 1 blank)
+  - 'action_mask': Box of int8, shape (action_space_size,), 0=invalid action, 1=valid action
+  - 'score_self': Box scalar int, current player's score
+  - 'score_opp': Box scalar int, opponent's score
 
 **Action Space:**
 - Discrete(N) where N = maximum possible actions
-- Each action is an integer that maps to either:
+- N = 1 + (board_size × board_size × 2 directions × dictionary_size)
+- Each action is an integer from 0 to N-1 that maps to either:
   - 'PASS' (always action 0)
-  - A word placement: (row, col, direction, word)
+  - A word placement: (word, row, col, direction) tuple
 
 **Methods to implement:**
 
-1. **`__init__(self, dictionary_path=None, board_size=5)`**
-   - Initialize all game components (board, tile bag, dictionary, scorer, players)
-   - Define observation space (Dict space)
-   - Define action space (Discrete space - size needs to be calculated)
-   - Initialize game state variables
+1. **`__init__(self, dictionary_path=None, board_size=5, rack_size=5)`**
+   - Call `super().__init__()` to initialize the Gymnasium base class
+   - Store configuration parameters: `self.board_size`, `self.rack_size`
+   - Load dictionary: If path provided, read word list from file and create `Dictionary` object. Otherwise use a small hardcoded list for testing (e.g., ['CAT', 'DOG', 'HAT', 'BAT', 'RAT', 'MAT'])
+   - Create Scorer object: `self.scorer = Scorer()` (persistent across episodes)
+   - Initialize game state variables to None: `self.board`, `self.tile_bag`, `self.players`, `self.current_player_idx`, `self.is_first_move`, `self.consecutive_passes`
+   - Initialize action tracking: `self.valid_actions = []` and `self.action_to_move = {}` (empty initially)
+   - Define observation space using `spaces.Dict()` with keys: 'board' (Box shape (5,5) dtype int32), 'rack' (Box shape (27,) dtype int32), 'action_mask' (Box shape (action_space_n,) dtype int8), 'score_self' (Box shape () dtype int32), 'score_opp' (Box shape () dtype int32)
+   - Calculate action space size: `max_actions = 1 + (self.board_size ** 2) * 2 * len(self.dictionary.words)`
+   - Define action space: `self.action_space = spaces.Discrete(max_actions)`
 
 2. **`reset(self, seed=None, options=None)`**
-   - Reset all components to initial state
-   - Create new board, tile bag, players
-   - Have both players draw initial tiles
-   - Set current_player_idx = 0
-   - Set is_first_move = True
-   - Generate valid actions for first player
-   - Return: (observation, info)
+   - Call `super().reset(seed=seed)` for proper Gymnasium seeding
+   - If seed is provided, also call `np.random.seed(seed)` for NumPy operations
+   - Create fresh Board object: `self.board = Board(self.dictionary, size=self.board_size)` (don't reuse from previous episode)
+   - Create fresh TileBag object: `self.tile_bag = TileBag(use_simplified=True)`
+   - Create two fresh Player objects: `self.players = [Player(id=0, rack_size=self.rack_size), Player(id=1, rack_size=self.rack_size)]`
+   - Have both players draw initial tiles: `for player in self.players: player.draw_tiles(self.tile_bag)`
+   - Initialize game state: `self.current_player_idx = 0`, `self.is_first_move = True`, `self.consecutive_passes = 0`
+   - Generate valid actions for first player: `self._generate_valid_actions()` (populates self.valid_actions and self.action_to_move)
+   - Build observation dict: `observation = self._get_observation()` (for Player 0)
+   - Create info dict with debugging info: `info = {'player_id': self.current_player_idx, 'valid_action_count': len(self.valid_actions)}`
+   - Return tuple: `(observation, info)`
 
 3. **`step(self, action)`**
-   - Input: Integer action ID
-   - Output: (observation, reward, terminated, truncated, info)
+   - Input: Integer action ID (from 0 to action_space.n - 1)
+   - Output: Tuple of (observation, reward, terminated, truncated, info)
 
    **Logic to implement:**
-   - Decode action using action_to_move mapping
-   - If action is invalid: return penalty, end episode
-   - If action is PASS:
-     - Increment consecutive_passes
-     - If consecutive_passes >= 2: game over
-     - Switch players
-   - If action is word placement:
-     - Place word on board (track which letters placed)
-     - Calculate score
-     - Update player: use tiles, add score, draw new tiles
-     - Reset consecutive_passes
-     - Set is_first_move = False
-     - Calculate reward (e.g., score / 10.0 for normalization)
-     - Check if game over
-     - If game over: handle final scoring (subtract opponent's remaining tiles)
-     - Switch to other player
-   - Generate valid actions for next player
-   - Build and return observation
+   - **Validate action**: Check `if action not in self.valid_actions`. If invalid, return `(self._get_observation(), -10.0, True, False, {'error': 'Invalid action'})` to penalize and end episode
+   - **Decode action**: Look up move in `self.action_to_move[action]` dictionary
+   - **Initialize return values**: `reward = 0.0`, `terminated = False`, `truncated = False`, `info = {}`
+   - **Handle PASS action** (if `move == 'PASS'`):
+     - Increment `self.consecutive_passes += 1`
+     - If `self.consecutive_passes >= 2`: set `terminated = True`, calculate `reward = self._compute_final_reward()`, add to info: `{'termination_reason': 'both_passed'}`
+     - Otherwise: `reward = 0.0` (no reward for passing)
+   - **Handle word placement** (if move is tuple `(word, row, col, direction)`):
+     - Determine which letters are being placed vs already on board: Loop through word positions, check `self.board.is_empty(r, c)`, build `letters_placed = [(r, c, letter), ...]` list
+     - Place word on board: `success = self.board.place_word(word, row, col, direction)`. If not success, return error (shouldn't happen if action generation correct)
+     - Get current player reference: `current_player = self.players[self.current_player_idx]`
+     - Calculate score: `score = self.scorer.score_word_placement(board, word, row, col, direction, letters_placed, rack_size)`
+     - Update player state: `current_player.use_tiles([letter for _, _, letter in letters_placed])`, then `current_player.add_score(score)`, then `current_player.draw_tiles(self.tile_bag)`
+     - Set `reward = score / 10.0` (normalize score to reasonable range)
+     - Reset consecutive passes: `self.consecutive_passes = 0`
+     - Mark first move complete: `self.is_first_move = False`
+     - Check if game over: `if self._is_game_over(): terminated = True, reward = self._compute_final_reward(), info['termination_reason'] = 'game_over'`
+   - **Switch players**: `self.current_player_idx = 1 - self.current_player_idx` (toggles between 0 and 1)
+   - **Generate valid actions for next player**: Call `self._generate_valid_actions()` to populate valid actions for the player whose turn is next
+   - **Build observation for next player**: `observation = self._get_observation()` (returns observation from perspective of next player)
+   - **Add debugging info**: Add to info dict: `{'player_id': self.current_player_idx, 'valid_action_count': len(self.valid_actions), 'move': move}`
+   - **Return**: `(observation, reward, terminated, truncated, info)`
 
 4. **`_generate_valid_actions(self)`**
-   - Clear valid_actions list and action_to_move dict
-   - action_id counter starts at 0
-   - Always add PASS as action 0
-   - For each board position (row, col):
-     - For each direction ('H', 'V'):
-       - For each word in dictionary:
-         - Quick check: does word fit on board?
-         - Detailed check: call board._can_place_word()
-         - If valid: add to valid_actions, map action_id to (row, col, direction, word)
-         - Increment action_id
-   - This is the computational bottleneck (O(positions × directions × dictionary_size))
+   - **Clear previous actions**: `self.valid_actions = []` and `self.action_to_move = {}`
+   - **Initialize action ID counter**: `action_id = 0`
+   - **Always add PASS action**: `self.valid_actions.append(0)`, `self.action_to_move[0] = 'PASS'`, then `action_id = 1`
+   - **Get current player's rack**: `current_player = self.players[self.current_player_idx]`, `player_rack = current_player.rack`
+   - **Triple nested loop** (this is the computational bottleneck):
+     - For `row in range(self.board_size)`:
+       - For `col in range(self.board_size)`:
+         - For `direction in ['H', 'V']`:
+           - For `word in self.dictionary.words`:
+             - **Quick boundary check**: If `direction == 'H' and col + len(word) > self.board_size: continue`. If `direction == 'V' and row + len(word) > self.board_size: continue`
+             - **Detailed validation**: `valid, reason = self.board._can_place_word(word, row, col, direction, player_rack, self.is_first_move)`
+             - **If valid**: Add to valid actions list: `self.valid_actions.append(action_id)`, map to move: `self.action_to_move[action_id] = (word, row, col, direction)`, increment counter: `action_id += 1`
+   - **Note**: This generates O(board_size² × 2 × dictionary_size) checks per turn. For 5×5 with 500 words = ~25,000 checks. Optimization comes later.
 
 5. **`_get_observation(self)`**
-   - Build observation dict for current player
-   - Get board array (board.to_array())
-   - Get rack array (current_player.rack_to_array())
-   - Create action mask: boolean array, True for valid actions
-   - Include scores (self and opponent)
-   - Return dict
+   - **Get current player and opponent references**: `current_player = self.players[self.current_player_idx]`, `opponent = self.players[1 - self.current_player_idx]`
+   - **Get board array**: `board_array = self.board.to_array()` (returns numpy array shape (5, 5) with integers 0-26)
+   - **Get rack array**: `rack_array = current_player.rack_to_array()` (returns numpy array shape (27,) with letter counts)
+   - **Build action mask**: Create numpy zeros array: `action_mask = np.zeros(self.action_space.n, dtype=np.int8)`. Set valid positions to 1: `action_mask[self.valid_actions] = 1`
+   - **Build observation dict**: `observation = {'board': board_array, 'rack': rack_array, 'action_mask': action_mask, 'score_self': np.int32(current_player.score), 'score_opp': np.int32(opponent.score)}`
+   - **Return**: `observation` dictionary
 
 6. **`_is_game_over(self)`**
-   - Return True if:
-     - Both players passed consecutively (consecutive_passes >= 2), OR
-     - Tile bag is empty AND one player used all rack tiles
-   - Otherwise return False
+   - **Check consecutive passes**: `if self.consecutive_passes >= 2: return True` (both players passed)
+   - **Check tile bag empty + player out of tiles**: `if self.tile_bag.is_empty():` then loop through `for player in self.players:` and check if all rack tiles are None: `if all(tile is None for tile in player.rack): return True`
+   - **Otherwise**: `return False` (game continues)
 
-7. **`render(self)`**
-   - Print current game state in human-readable format
-   - Show board (use board.__str__())
-   - Show both players' scores and racks
-   - Show tiles remaining in bag
-   - Show current player
-   - Show count of valid actions
+7. **`render(self, mode='human')`**
+   - **Print header**: Print separator line and title with current player info: `"MINI-SCRABBLE - Player {self.current_player_idx}'s turn"`
+   - **Print board**: Print label "Board:", then print `self.board` (uses Board's `__str__` method showing grid with letters or dots)
+   - **Print player info**: Loop through both players, for each print: player ID, score, rack tiles. Mark current player with ">>>" indicator
+   - **Print game state**: Print tiles remaining in bag: `self.tile_bag.tiles_remaining()`, print `self.is_first_move` flag, print `self.consecutive_passes` count
+   - **Print action info**: Print number of valid actions: `len(self.valid_actions)`. Optionally, if small number (<=10), print the actual moves available
 
-8. **`_compute_action_space_size(self)`** (helper)
-   - Calculate maximum possible actions
-   - Simple approach: board_size × board_size × 2 directions × dictionary_size + 1 (for PASS)
-   - This gives an upper bound
+8. **`_compute_final_reward(self)` (helper)**
+   - **Purpose**: Calculate final reward when game ends, based on score differential and win/loss
+   - **Get player references**: `current_player = self.players[self.current_player_idx]`, `opponent = self.players[1 - self.current_player_idx]`
+   - **Apply end-game scoring** (Scrabble rule): For each player, subtract value of tiles remaining in rack from their score. Loop: `for player in self.players:` calculate `remaining_value = sum(self.scorer.letter_scores[tile.lower()] for tile in player.rack if tile is not None)`, then `player.score -= remaining_value`
+   - **Calculate score differential**: `score_diff = current_player.score - opponent.score`
+   - **Calculate reward**: If won (score_diff > 0): `reward = 10.0 + score_diff / 10.0`. If lost (score_diff < 0): `reward = -10.0 + score_diff / 10.0`. If tied: `reward = 0.0`
+   - **Return**: `reward` (float)
 
 **What to code:**
 1. Create `mini_scrabble_env.py` with `MiniScrabbleEnv` class
